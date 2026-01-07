@@ -19,9 +19,6 @@ The code is intentionally kept simple and modular.
 It is not intended to be production-ready software.
 
 ## Contents
------
-
-## Contents
 
 - `transition_kernel.py`: constructs the discrete Markov transition kernel \(P(K' \mid K)\) on a user-supplied grid.
 - `diagnostics.py`: lightweight diagnostics (row-sum checks) and plotting utilities for kernel sanity checks.
