@@ -19,15 +19,13 @@ The code is intentionally kept simple and modular.
 It is not intended to be production-ready software.
 
 ## Contents
+-----
 
-The repository contains prototype implementations for:
+## Contents
 
-- Construction of the transition kernel for the capital-stock Markov process  
-- Numerical computation of invariant distributions  
-- Simulation of sample paths consistent with the theoretical model  
-- Generation of representative figures used in the book
-
-Each file corresponds directly to a specific component discussed in the text or appendices.
+- `transition_kernel.py`: constructs the discrete Markov transition kernel \(P(K' \mid K)\) on a user-supplied grid.
+- `diagnostics.py`: lightweight diagnostics (row-sum checks) and plotting utilities for kernel sanity checks.
+- `RUN_DIAGNOSTICS.py`: minimal entry point that builds \(P(K'\mid K)\) and produces diagnostic row-overlay plots.
 
 ## Usage
 
