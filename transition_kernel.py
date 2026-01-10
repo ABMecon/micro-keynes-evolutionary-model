@@ -6,16 +6,20 @@ This module constructs a discrete approximation to the one-step transition kerne
 P(K' | K) implied by the model. The kernel is represented as a row-stochastic
 matrix over a user-supplied grid K_grid.
 
+
 Design principles (for reproducible prototypes):
 - No plotting, no printing, no side effects on import.
 - Pure functions: inputs -> outputs.
 - Minimal dependencies (NumPy only).
+
+
 """
 
 from __future__ import annotations
 
 from typing import Literal
 import numpy as np
+import warnings
 
 
 # -----------------------------
@@ -42,9 +46,23 @@ def Kd_K(alpha: float, eta: float, delta: float, rK: np.ndarray, c: float, K: np
 
 
 def compute_zeta(K: np.ndarray, sigma_0: float, c: float, alpha: float, eta: float, delta: float) -> np.ndarray:
-    """Compute zeta(K) = (util(K) - 1)/delta, where util = K^d / K."""
+    """
+    Compute zeta(K) = (util(K) - 1)/delta, where util = K^d / K.
+    Warns if r(K)+delta approaches zero, which may cause numerical instability.
+    """
     K = np.asarray(K, dtype=float)
     rK = hat_r_K(K, sigma_0, delta)
+    # --- numerical safety check: rK + delta ---
+    eps = 1e-10  # tolerance; adjust if needed
+    min_denom = np.min(rK + delta)
+
+    if min_denom < eps:
+        warnings.warn(
+        f"r(K)+delta is close to zero (min = {min_denom:.3e}). "
+        "Transition kernel may be numerically unstable.",
+        RuntimeWarning,
+    )
+
     Kd = Kd_K(alpha, eta, delta, rK, c, K)
     util = Kd / K
     return (util - 1.0) / delta
@@ -74,7 +92,7 @@ def s_func(b: float, phi: float, cb: float, zeta: np.ndarray) -> np.ndarray:
 def build_transition_matrix(
     K_grid: np.ndarray,
     sigma_0: float,
-    b: float,
+    V: float,          # was: b: float
     phi: float,
     c: float,
     alpha: float,
@@ -86,14 +104,6 @@ def build_transition_matrix(
     normalize_rows: bool = True,
 ) -> np.ndarray:
     """
-    Build a discrete transition matrix P over the supplied K_grid.
-
-    The construction follows your current discrete-jump approximation:
-    - Stay mass: p_0(K) at K' = K.
-    - Up branch: K' = K * (1 + ((1 - p*u) * delta/(2b))) with u in [0,1] discretized.
-    - Down branch: K' = K * (1 - ((1 - q*u) * delta/(2b))) with u in [0,1] discretized.
-    - Each branch mass is allocated to neighboring grid points via linear interpolation.
-
     Parameters
     ----------
     K_grid : ndarray
@@ -109,7 +119,29 @@ def build_transition_matrix(
     -------
     P : ndarray (nK, nK)
         Row-stochastic transition matrix.
+
+    
+    Build a discrete transition matrix P over the supplied K_grid.
+    This function treats V as a deep parameter and computes the derived quantity 
+    b = cb / V internally; all probability mass placement is handled locally to ensure consistency.
+
+    The construction follows discrete-jump approximation:
+    - Stay mass: p_0(K) at K' = K.
+    - Up branch: K' = K * (1 + ((1 - p*u) * delta/(2b))) with u in [0,1] discretized.
+    - Down branch: K' = K * (1 - ((1 - q*u) * delta/(2b))) with u in [0,1] discretized.
+    - Each branch mass is allocated to neighboring grid points via linear interpolation.
+
     """
+
+    if V <= 0.0:
+        raise ValueError("V must be positive.")
+    if cb <= 0.0:
+        raise ValueError("cb must be positive.")
+    b = cb / V   # derived quantity (do not treat as primitive)
+
+    
+    
+        # --- basic validation / setup (restored) ---
     K_grid = np.asarray(K_grid, dtype=float)
     if K_grid.ndim != 1 or len(K_grid) < 2:
         raise ValueError("K_grid must be a 1D array with length >= 2.")
@@ -117,14 +149,13 @@ def build_transition_matrix(
         raise ValueError("K_grid must be strictly increasing.")
     if J <= 0:
         raise ValueError("J must be a positive integer.")
-
     n = len(K_grid)
-    P = np.zeros((n, n), dtype=float)
-
     zeta = compute_zeta(K_grid, sigma_0, c, alpha, eta, delta)
     p_vals = p_func(b, phi, zeta)
     q_vals = q_func(b, phi, cb, zeta)
     s_vals = 1.0 - p_vals - q_vals
+
+    P = np.zeros((n, n), dtype=float)
 
     # quadrature points on [0,1]
     if u_mode == "midpoint":
@@ -150,22 +181,20 @@ def build_transition_matrix(
         P[i, j - 1] += mass * w_lo
         P[i, j] += mass * w_hi
 
+    # ... unchanged loop ...
     for i, K in enumerate(K_grid):
         p = float(p_vals[i])
         q = float(q_vals[i])
         s = float(s_vals[i])
 
-        # stay-put
         P[i, i] += s
 
-        # up
         if p > 0.0:
             mass_each = p / J
             for u in U:
                 Kp = (1.0 + ((1.0 - p * u) * delta / (2.0 * b))) * K
                 add_mass(i, float(Kp), mass_each)
 
-        # down
         if q > 0.0:
             mass_each = q / J
             for u in U:
